@@ -7,11 +7,12 @@ from flask_migrate import Migrate
 from flask_swagger import swagger
 from flask_cors import CORS
 from api.utils import APIException, generate_sitemap
-from api.models import db
+from api.models import db, User
 from api.routes import api
 from api.admin import setup_admin
 from api.commands import setup_commands
-
+import datetime #espacios de tiempo
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 #from models import Person
 
 ENV = os.getenv("FLASK_ENV")
@@ -42,6 +43,8 @@ setup_commands(app)
 # Add all endpoints form the API with a "api" prefix
 app.register_blueprint(api, url_prefix='/api')
 
+jwt = JWTManager(app)
+
 # Handle/serialize errors like a JSON object
 @app.errorhandler(APIException)
 def handle_invalid_usage(error):
@@ -63,6 +66,42 @@ def serve_any_other_file(path):
     response.cache_control.max_age = 0 # avoid cache memory
     return response
 
+@app.route('/signup', methods=['POST'])
+def registro():
+    request_body = request.get_json()
+    new_user = User(email=request_body['email'], password=request_body['password'], nombre=request_body['nombre'], is_active=True)
+    user = User.query.filter_by(email=request_body['email']).first()
+    if user :
+        return jsonify({"Mensaje": "Tu email ya existe"})
+    else: 
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"Mensaje": "Registro Exitoso"}), 201
+
+@app.route('/login', methods=['POST'])
+def iniciar_sesion():
+    request_body = request.get_json()
+    user = User.query.filter_by(email=request_body['email']).first()
+    if user:
+        if user.password == request_body['password']:
+            tiempo = datetime.timedelta(days=365)
+            access_token = create_access_token(identity = request_body['email'], expires_delta= tiempo)
+            return jsonify({
+                "mensaje": "inicio de sesion correcto",
+                "duracion": tiempo.total_seconds(),
+                "access_token": access_token,
+                "error": None
+            }),200
+        else:
+            return jsonify({"mensaje": "Clave Incorrecta"}), 400
+    else:
+        return jsonify({"mensaje": "user no existe"}), 400
+
+@app.route('/privada', methods=['GET'])
+@jwt_required()
+def privada():
+    identidad = get_jwt_identity()
+    return jsonify({"acceso": "concedido, Bienvenida/o", "email": identidad, "permiso": True})
 
 # this only runs if `$ python src/main.py` is executed
 if __name__ == '__main__':
